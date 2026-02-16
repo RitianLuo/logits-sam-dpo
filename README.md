@@ -1,4 +1,4 @@
-# Logits-Space SAM for DPO (ICLR 2026) - Official Implementation
+# logits-SAM for DPO (ICLR 2026) - Official Implementation
 
 Official implementation of the ICLR 2026 paper:
 
@@ -8,7 +8,7 @@ This codebase is built on top of the Hugging Face H4 **alignment-handbook** and 
 
 ## What This Adds
 
-- A logits-space SAM trainer for DPO: `LogitsSAMTrainer` (`scripts/sam_trainer.py`)
+- A logits-SAM trainer for DPO: `LogitsSAMTrainer` (`scripts/sam_trainer.py`)
 - A lightweight switch in `scripts/dpo.py` to use the SAM trainer via CLI flags
 
 ## Quickstart
