@@ -1,133 +1,55 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/huggingface/alignment-handbook/main/assets/handbook.png">
-</p>
+# Logits-Space SAM for DPO (ICLR 2026) - Official Implementation
 
-<p align="center">
-    🤗 <a href="https://huggingface.co/collections/alignment-handbook/handbook-v01-models-and-datasets-654e424d22e6880da5ebc015" target="_blank">Models & Datasets</a> | 📃 <a href="https://arxiv.org/abs/2310.16944" target="_blank">Technical Report</a>
-</p>
+Official implementation of the ICLR 2026 paper:
 
-# The Alignment Handbook
+> **SHARPNESS-AWARE MINIMIZATION IN LOGIT SPACE EFFICIENTLY ENHANCES DIRECT PREFERENCE OPTIMIZATION**
 
-Robust recipes to continue pretraining and to align language models with human and AI preferences.
+This codebase is built on top of the Hugging Face H4 **alignment-handbook** and follows its recipe-driven training flow.
 
-## What is this?
+## What This Adds
 
-Just one year ago, chatbots were out of fashion and most people hadn't heard about techniques like Reinforcement Learning from Human Feedback (RLHF) to align language models with human preferences. Then, OpenAI broke the internet with ChatGPT and Meta followed suit by releasing the Llama series of language models which enabled the ML community to build their very own capable chatbots. This has led to a rich ecosystem of datasets and models that have mostly focused on teaching language models to follow instructions through supervised fine-tuning (SFT).
+- A logits-space SAM trainer for DPO: `LogitsSAMTrainer` (`scripts/sam_trainer.py`)
+- A lightweight switch in `scripts/dpo.py` to use the SAM trainer via CLI flags
 
-However, we know from the [InstructGPT](https://huggingface.co/papers/2203.02155) and [Llama2](https://huggingface.co/papers/2307.09288) papers that significant gains in helpfulness and safety can be had by augmenting SFT with human (or AI) preferences. At the same time, aligning language models to a set of preferences is a fairly novel idea and there are few public resources available on how to train these models, what data to collect, and what metrics to measure for best downstream performance.
+## Quickstart
 
-The Alignment Handbook aims to fill that gap by providing the community with a series of robust training recipes that span the whole pipeline.
+Follow the upstream alignment-handbook installation instructions first (Python env, dependencies, Hugging Face auth, etc.).
 
-## News 🗞️
-* **July 24, 2025**: We release the full [post-training recipe](recipes/smollm3/README.md) behind SmolLM3-3B: a state-of-the-art hybrid reasoning model 💭
-* **November 21, 2024**: We release the [recipe](recipes/smollm2/README.md) for fine-tuning SmolLM2-Instruct.
-* **August 18, 2024**: We release SmolLM-Instruct v0.2, along with the [recipe](recipes/smollm/README.md)  to fine-tuning small LLMs 💻
-* **April 12, 2024**: We release Zephyr 141B (A35B), in collaboration with Argilla and Kaist AI, along with the recipe to fine-tune Mixtral 8x22B with ORPO 🪁
-* **March 12, 2024:** We release StarChat2 15B, along with the recipe to train capable coding assistants 🌟
-* **March 1, 2024:** We release Zephyr 7B Gemma, which is a new recipe to align Gemma 7B with RLAIF 🔥
-* **February 1, 2024:** We release a recipe to align open LLMs with Constitutional AI 📜! See the [recipe](https://github.com/huggingface/alignment-handbook/tree/main/recipes/constitutional-ai) and the [blog post](https://huggingface.co/blog/constitutional_ai) for details. 
-* **January 18, 2024:** We release a suite of evaluations of DPO vs KTO vs IPO, see the [recipe](recipes/pref_align_scan/README.md) and the [blog post](https://huggingface.co/blog/pref-tuning) for details.
-* **November 10, 2023:** We release all the training code to replicate Zephyr-7b-β 🪁! We also release [No Robots](https://huggingface.co/datasets/HuggingFaceH4/no_robots), a brand new dataset of 10,000 instructions and demonstrations written entirely by skilled human annotators.
+Then run the original DPO recipe command and append the extra flags:
 
-## Links 🔗
+- `--use_sam_trainer`: enable `LogitsSAMTrainer`
+- `--sam_rho <float>`: SAM radius (default: `0.05`)
 
-* [Zephyr 7B models, datasets, and demos](https://huggingface.co/collections/HuggingFaceH4/zephyr-7b-6538c6d6d5ddd1cbb1744a66)
+### Example: Full Fine-Tuning with DeepSpeed ZeRO-3 (Recipe + Extra Flags)
 
-## How to navigate this project 🧭
-
-This project is simple by design and mostly consists of:
-
-* [`scripts`](./scripts/) to train and evaluate models. Four steps are included: continued pretraining, supervised-finetuning (SFT) for chat, preference alignment with DPO, and supervised-finetuning with preference alignment with ORPO. Each script supports distributed training of the full model weights with DeepSpeed ZeRO-3, or LoRA/QLoRA for parameter-efficient fine-tuning.
-* [`recipes`](./recipes/) to reproduce models like Zephyr 7B. Each recipe takes the form of a YAML file which contains all the parameters associated with a single training run. A `gpt2-nl` recipe is also given to illustrate how this handbook can be used for language or domain adaptation, e.g. by continuing to pretrain on a different language, and then SFT and DPO tuning the result. 
-
-We are also working on a series of guides to explain how methods like direct preference optimization (DPO) work, along with lessons learned from gathering human preferences in practice. To get started, we recommend the following:
-
-1. Follow the [installation instructions](#installation-instructions) to set up your environment etc.
-2. Replicate Zephyr-7b-β by following the [recipe instructions](./recipes/zephyr-7b-beta/README.md).
-
-If you would like to train chat models on your own datasets, we recommend following the dataset formatting instructions [here](./scripts/README.md#fine-tuning-on-your-datasets).
-
-
-## Contents
-
-The initial release of the handbook will focus on the following techniques:
-
-* **Continued pretraining:** adapt language models to a new language or domain, or simply improve it by continued pretraining (causal language modeling) on a new dataset.
-* **Supervised fine-tuning:** teach language models to follow instructions and tips on how to collect and curate your training dataset.
-* **Reward modeling:** teach language models to distinguish model responses according to human or AI preferences.
-* **Rejection sampling:** a simple, but powerful technique to boost the performance of your SFT model.
-* **Direct preference optimisation (DPO):** a powerful and promising alternative to PPO.
-* **Odds Ratio Preference Optimisation (ORPO)**: a technique to fine-tune language models with human preferences, combining SFT and DPO in a single stage.
-
-## Installation instructions
-
-To run the code in this project, first, create a Python virtual environment using e.g. `uv`:
-
-```shell
-uv venv handbook --python 3.11 && source handbook/bin/activate && uv pip install --upgrade pip
+```bash
+ACCELERATE_LOG_LEVEL=info accelerate launch \
+  --config_file recipes/accelerate_configs/zero3.yaml \
+  scripts/dpo.py \
+  --config recipes/zephyr-7b-beta/dpo/config_full.yaml \
+  --use_sam_trainer \
+  --sam_rho 1e-3
 ```
 
-> [!TIP]
-> To install `uv`, follow the [UV Installation Guide](https://docs.astral.sh/uv/getting-started/installation/).
+### Example: 2-GPU / DDP Full Fine-Tuning (Recipe + Extra Flags)
 
-Next, install PyTorch `v2.6.0` 
-
-```shell
-uv pip install torch==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+```bash
+CUDA_VISIBLE_DEVICES=0,1 ACCELERATE_LOG_LEVEL=info accelerate launch \
+  --config_file recipes/accelerate_configs/ddp.yaml \
+  --num_processes=2 \
+  scripts/dpo.py \
+  --config recipes/zephyr-7b-beta/dpo/config_full.yaml \
+  --use_sam_trainer \
+  --sam_rho 1e-3
 ```
 
-Note that the precise version is important for reproducibility! Since this is hardware-dependent, we also direct you to the [PyTorch Installation Page](https://pytorch.org/get-started/locally/).
+You can use any other alignment-handbook recipe config the same way (e.g. `recipes/smollm2/dpo/config.yaml`).
 
-You can then install the remaining package dependencies as follows:
+## Notes on DeepSpeed ZeRO-3
 
-```shell
-uv pip install .
-```
+DeepSpeed ZeRO-3 support for the logits-only SAM path is still being optimized. 
 
-You will also need Flash Attention 2 installed, which can be done by running:
+## Code Pointers
 
-```shell
-uv pip install "flash-attn==2.7.4.post1" --no-build-isolation
-```
-
-Next, log into your Hugging Face account as follows:
-
-```shell
-huggingface-cli login
-```
-
-Finally, install Git LFS so that you can push models to the Hugging Face Hub:
-
-```shell
-sudo apt-get install git-lfs
-```
-
-You can now check out the `scripts` and `recipes` directories for instructions on how to train some models 🪁!
-
-## Project structure
-
-```
-├── LICENSE
-├── Makefile                    <- Makefile with commands like `make style`
-├── README.md                   <- The top-level README for developers using this project
-├── recipes                     <- Recipe configs, accelerate configs, slurm scripts
-├── scripts                     <- Scripts to train and evaluate chat models
-├── setup.cfg                   <- Installation config (mostly used for configuring code quality & tests)
-├── setup.py                    <- Makes project pip installable (pip install -e .) so `alignment` can be imported
-├── src                         <- Source code for use in this project
-└── tests                       <- Unit tests
-```
-
-## Citation
-
-If you find the content of this repo useful in your work, please cite it as follows via `\usepackage{biblatex}`:
-
-```bibtex
-@software{Tunstall_The_Alignment_Handbook,
-  author = {Tunstall, Lewis and Beeching, Edward and Lambert, Nathan and Rajani, Nazneen and Huang, Shengyi and Rasul, Kashif and Bartolome, Alvaro, and M. Patiño, Carlos and M. Rush, Alexander and Wolf, Thomas},
-  license = {Apache-2.0},
-  title = {{The Alignment Handbook}},
-  url = {https://github.com/huggingface/alignment-handbook},
-  version = {0.4.0.dev0}
-}
-```
+- `scripts/sam_trainer.py`: `LogitsSAMTrainer` implementation (logits-only SAM for DPO)
+- `scripts/dpo.py`: CLI flags and trainer selection (`--use_sam_trainer`, `--sam_rho`)
