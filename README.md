@@ -47,7 +47,7 @@ You can use any other alignment-handbook recipe config the same way (e.g. `recip
 
 ## Notes on DeepSpeed ZeRO-3
 
-DeepSpeed ZeRO-3 support for the logits-only SAM path is still being optimized. 
+logits-SAM support for DeepSpeed ZeRO-3 is still being optimized for efficiency.
 
 ## Code Pointers
 
