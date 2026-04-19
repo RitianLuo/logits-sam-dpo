@@ -63,10 +63,12 @@ def main(script_args, training_args, model_args, cli_extra=None):
     # Select trainer class and trainer-specific kwargs.
     use_sam = bool(getattr(cli_extra, "use_sam_trainer", False))
     if use_sam:
-        from sam_trainer import LogitsSAMTrainer as TrainerClass
+        from alignment.sam_trainer import LogitsSAMTrainer as TrainerClass
 
         extra_kwargs = {
             "sam_rho": float(getattr(cli_extra, "sam_rho", 0.05)),
+            "sam_use_chunked_delta_logits": bool(getattr(cli_extra, "sam_use_chunked_delta_logits", False)),
+            "sam_vocab_chunk_size": int(getattr(cli_extra, "sam_vocab_chunk_size", 4096)),
         }
         logger.info(f"Using LogitsSAMTrainer with {extra_kwargs}")
     else:
@@ -114,6 +116,8 @@ if __name__ == "__main__":
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--use_sam_trainer", action="store_true", help="Use LogitsSAMTrainer instead of DPOTrainer")
     pre.add_argument("--sam_rho", type=float, default=0.05)
+    pre.add_argument("--sam_use_chunked_delta_logits", action="store_true")
+    pre.add_argument("--sam_vocab_chunk_size", type=int, default=4096)
     cli_extra, remaining = pre.parse_known_args()
 
     parser = TrlParser((ScriptArguments, DPOConfig, ModelConfig))

@@ -104,7 +104,7 @@ def _perturb_(param: torch.Tensor, delta: torch.Tensor):
             
 class LogitsSAMTrainer(DPOTrainer):
     """
-    DPO trainer with logits-only SAM updates.
+    DPO trainer with logits-SAM updates.
 
     It reuses TRL's concatenated forward/log-prob path and applies
     SAM perturbation on lm_head without a second full model forward.
@@ -346,7 +346,7 @@ class LogitsSAMTrainer(DPOTrainer):
         inputs: dict,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Build perturbed logits for ZeRO-3 with a logits-only SAM path.
+        Build perturbed logits for ZeRO-3 with a logits-SAM path.
 
         This method mirrors TRL's concatenation/flush/truncation behavior,
         runs one normal forward to capture hidden states entering lm_head,
@@ -357,7 +357,7 @@ class LogitsSAMTrainer(DPOTrainer):
             loss_proxy: scalar tensor used to build the SAM perturbation
         """
         if self.is_encoder_decoder:
-            raise NotImplementedError("Logits-only SAM (ZeRO-3) currently supports decoder-only models.")
+            raise NotImplementedError("logits-SAM (ZeRO-3) currently supports decoder-only models.")
 
         # 1) Build concatenated batch exactly like TRL.
         num_examples = inputs["prompt_input_ids"].shape[0]
@@ -535,7 +535,7 @@ class LogitsSAMTrainer(DPOTrainer):
     ):
 
         if self.is_encoder_decoder:
-            raise NotImplementedError("Logits-only SAM currently supports decoder-only models.")
+            raise NotImplementedError("logits-SAM currently supports decoder-only models.")
 
         # Keep precision strategy aligned with the base trainer behavior.
         compute_loss_context_manager = (
@@ -554,7 +554,7 @@ class LogitsSAMTrainer(DPOTrainer):
         loss_types = self.loss_type if isinstance(self.loss_type, (list, tuple)) else [self.loss_type]
 
         if _is_zero3(getattr(self, "accelerator", None)):
-            # ZeRO-3 path: build perturbed logits with logits-only SAM.
+            # ZeRO-3 path: build perturbed logits with logits-SAM.
             logits_perturbed, loss_pre = self.build_perturbed_logits_zero3(model, batch)
         else:
             # Non-ZeRO-3 path: capture hidden states entering lm_head.
