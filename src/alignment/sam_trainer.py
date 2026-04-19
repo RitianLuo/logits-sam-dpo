@@ -440,16 +440,14 @@ class LogitsSAMTrainer(DPOTrainer):
             loss_pre = losses_pre.mean()
 
             (grad_logits,) = torch.autograd.grad(loss_pre, clean_logits_pre, retain_graph=False, create_graph=False)
+            grad_logits_det = grad_logits.detach().reshape(-1, grad_logits.shape[-1])
+            hidden_det = hidden_states_pre.reshape(-1, hidden_states_pre.shape[-1]).to(grad_logits_det.dtype, copy=False)
+            grad = grad_logits_det.t().matmul(hidden_det)
+            if self.sam_adaptive:
+                grad = grad * head_weight.detach().abs().to(grad.dtype, copy=False)
             with torch.amp.autocast(self.accelerator.device.type, enabled=False):
-                grad_logits_fp32 = grad_logits.detach().float().reshape(-1, grad_logits.shape[-1])
-                hidden_fp32 = hidden_states_pre.float().reshape(-1, hidden_states_pre.shape[-1])
-                grad_fp32 = grad_logits_fp32.t().matmul(hidden_fp32)
-                if self.sam_adaptive:
-                    grad_fp32 = grad_fp32 * head_weight.detach().abs().float()
-                grad_norm = grad_fp32.norm(p=2).clamp_min(1e-12)
-                perturbation = grad_fp32 * (self.sam_rho / grad_norm)
-
-            perturbation = perturbation.to(head_weight.dtype).detach()
+                grad_norm = grad.float().norm(p=2).clamp_min(1e-12)
+            perturbation = (grad * (self.sam_rho / grad_norm).to(grad.dtype)).to(head_weight.dtype).detach()
             perturbed_logits = self._compute_logits_from_weight_bias(hidden_states, head_weight + perturbation, head_bias)
 
         return perturbed_logits, loss_pre.detach()
@@ -479,32 +477,31 @@ class LogitsSAMTrainer(DPOTrainer):
         h_det = hidden_states.detach().reshape(-1, hidden_size)
         g_det = grad_logits.detach().reshape(-1, vocab_size)
 
-        with torch.amp.autocast(self.accelerator.device.type, enabled=False):
-            h_post_fp32 = h_post.float()
-            h_det_fp32 = h_det.float()
-            g_fp32 = g_det.float()
+        work_dtype = g_det.dtype
+        h_post_work = h_post.to(work_dtype, copy=False)
+        h_det_work = h_det.to(work_dtype, copy=False)
 
-            norm_sq = h_det_fp32.new_zeros(())
-            for start in range(0, vocab_size, chunk_size):
-                end = min(start + chunk_size, vocab_size)
-                g_block = g_fp32[:, start:end]
-                grad_w_block = g_block.t().matmul(h_det_fp32)
-                norm_sq = norm_sq + grad_w_block.square().sum()
+        norm_sq = torch.zeros((), device=g_det.device, dtype=torch.float32)
+        for start in range(0, vocab_size, chunk_size):
+            end = min(start + chunk_size, vocab_size)
+            g_block = g_det[:, start:end]
+            grad_w_block = g_block.t().matmul(h_det_work)
+            norm_sq = norm_sq + grad_w_block.float().square().sum()
 
-            scale = self.sam_rho / norm_sq.sqrt().clamp_min(1e-12)
+        scale = (self.sam_rho / norm_sq.sqrt().clamp_min(1e-12)).to(work_dtype)
 
-            delta_logits = torch.empty(
-                g_fp32.shape,
-                device=g_fp32.device,
-                dtype=out_dtype,
-            )
-            for start in range(0, vocab_size, chunk_size):
-                end = min(start + chunk_size, vocab_size)
-                g_block = g_fp32[:, start:end]
-                grad_w_block = g_block.t().matmul(h_det_fp32)
-                eps_block_t = (grad_w_block * scale).t().contiguous()
-                delta_block = h_post_fp32.matmul(eps_block_t)
-                delta_logits[:, start:end] = delta_block.to(out_dtype)
+        delta_logits = torch.empty(
+            g_det.shape,
+            device=g_det.device,
+            dtype=out_dtype,
+        )
+        for start in range(0, vocab_size, chunk_size):
+            end = min(start + chunk_size, vocab_size)
+            g_block = g_det[:, start:end]
+            grad_w_block = g_block.t().matmul(h_det_work)
+            eps_block_t = (grad_w_block * scale).t().contiguous()
+            delta_block = h_post_work.matmul(eps_block_t)
+            delta_logits[:, start:end] = delta_block.to(out_dtype)
 
         return delta_logits.view_as(grad_logits)
 
@@ -527,14 +524,14 @@ class LogitsSAMTrainer(DPOTrainer):
         h_det = hidden_states.detach().reshape(-1, hidden_size)
         g_det = grad_logits.detach().reshape(-1, vocab_size)
 
+        work_dtype = g_det.dtype
+        h_post_work = h_post.to(work_dtype, copy=False)
+        h_det_work = h_det.to(work_dtype, copy=False)
+        grad_w = g_det.t().matmul(h_det_work)
         with torch.amp.autocast(self.accelerator.device.type, enabled=False):
-            h_post_fp32 = h_post.float()
-            h_det_fp32 = h_det.float()
-            g_fp32 = g_det.float()
-
-            grad_w = g_fp32.t().matmul(h_det_fp32)
-            scale = self.sam_rho / grad_w.norm(p=2).clamp_min(1e-12)
-            delta_logits = h_post_fp32.matmul((grad_w * scale).t())
+            grad_norm = grad_w.float().norm(p=2).clamp_min(1e-12)
+        scale = (self.sam_rho / grad_norm).to(grad_w.dtype)
+        delta_logits = h_post_work.matmul((grad_w * scale).t())
 
         return delta_logits.to(out_dtype).view_as(grad_logits)
 
@@ -602,14 +599,14 @@ class LogitsSAMTrainer(DPOTrainer):
         head_weight: torch.Tensor,
     ) -> torch.Tensor:
         (grad_logits,) = torch.autograd.grad(loss_pre, clean_logits_pre, retain_graph=False, create_graph=False)
+        grad_logits_det = grad_logits.detach().reshape(-1, grad_logits.shape[-1])
+        hidden_det = hidden_states_pre.reshape(-1, hidden_states_pre.shape[-1]).to(grad_logits_det.dtype, copy=False)
+        grad = grad_logits_det.t().matmul(hidden_det)
+        if self.sam_adaptive:
+            grad = grad * head_weight.detach().abs().to(grad.dtype, copy=False)
         with torch.amp.autocast(self.accelerator.device.type, enabled=False):
-            grad_logits_fp32 = grad_logits.detach().float().reshape(-1, grad_logits.shape[-1])
-            hidden_fp32 = hidden_states_pre.float().reshape(-1, hidden_states_pre.shape[-1])
-            grad_fp32 = grad_logits_fp32.t().matmul(hidden_fp32)
-            if self.sam_adaptive:
-                grad_fp32 = grad_fp32 * head_weight.detach().abs().float()
-            grad_norm = grad_fp32.norm(p=2).clamp_min(1e-12)
-            perturbation = grad_fp32 * (self.sam_rho / grad_norm)
+            grad_norm = grad.float().norm(p=2).clamp_min(1e-12)
+        perturbation = grad * (self.sam_rho / grad_norm).to(grad.dtype)
         return perturbation.to(head_weight.dtype)
 
     def compute_loss(
