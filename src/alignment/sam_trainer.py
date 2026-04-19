@@ -477,18 +477,19 @@ class LogitsSAMTrainer(DPOTrainer):
         h_det = hidden_states.detach().reshape(-1, hidden_size)
         g_det = grad_logits.detach().reshape(-1, vocab_size)
 
-        work_dtype = g_det.dtype
-        h_post_work = h_post.to(work_dtype, copy=False)
-        h_det_work = h_det.to(work_dtype, copy=False)
+        h_post_out = h_post.to(out_dtype, copy=False)
+        with torch.amp.autocast(self.accelerator.device.type, enabled=False):
+            h_det_fp32 = h_det.float()
+            g_fp32 = g_det.float()
 
-        norm_sq = torch.zeros((), device=g_det.device, dtype=torch.float32)
-        for start in range(0, vocab_size, chunk_size):
-            end = min(start + chunk_size, vocab_size)
-            g_block = g_det[:, start:end]
-            grad_w_block = g_block.t().matmul(h_det_work)
-            norm_sq = norm_sq + grad_w_block.float().square().sum()
+            norm_sq = torch.zeros((), device=g_det.device, dtype=torch.float32)
+            for start in range(0, vocab_size, chunk_size):
+                end = min(start + chunk_size, vocab_size)
+                g_block = g_fp32[:, start:end]
+                grad_w_block = g_block.t().matmul(h_det_fp32)
+                norm_sq = norm_sq + grad_w_block.square().sum()
 
-        scale = (self.sam_rho / norm_sq.sqrt().clamp_min(1e-12)).to(work_dtype)
+            scale = self.sam_rho / norm_sq.sqrt().clamp_min(1e-12)
 
         delta_logits = torch.empty(
             g_det.shape,
@@ -497,11 +498,12 @@ class LogitsSAMTrainer(DPOTrainer):
         )
         for start in range(0, vocab_size, chunk_size):
             end = min(start + chunk_size, vocab_size)
-            g_block = g_det[:, start:end]
-            grad_w_block = g_block.t().matmul(h_det_work)
-            eps_block_t = (grad_w_block * scale).t().contiguous()
-            delta_block = h_post_work.matmul(eps_block_t)
-            delta_logits[:, start:end] = delta_block.to(out_dtype)
+            with torch.amp.autocast(self.accelerator.device.type, enabled=False):
+                g_block = g_fp32[:, start:end]
+                grad_w_block = g_block.t().matmul(h_det_fp32)
+                eps_block_t = (grad_w_block * scale).t().contiguous().to(out_dtype)
+            delta_block = h_post_out.matmul(eps_block_t)
+            delta_logits[:, start:end] = delta_block
 
         return delta_logits.view_as(grad_logits)
 
@@ -524,16 +526,17 @@ class LogitsSAMTrainer(DPOTrainer):
         h_det = hidden_states.detach().reshape(-1, hidden_size)
         g_det = grad_logits.detach().reshape(-1, vocab_size)
 
-        work_dtype = g_det.dtype
-        h_post_work = h_post.to(work_dtype, copy=False)
-        h_det_work = h_det.to(work_dtype, copy=False)
-        grad_w = g_det.t().matmul(h_det_work)
+        h_post_out = h_post.to(out_dtype, copy=False)
         with torch.amp.autocast(self.accelerator.device.type, enabled=False):
-            grad_norm = grad_w.float().norm(p=2).clamp_min(1e-12)
-        scale = (self.sam_rho / grad_norm).to(grad_w.dtype)
-        delta_logits = h_post_work.matmul((grad_w * scale).t())
+            h_det_fp32 = h_det.float()
+            g_fp32 = g_det.float()
 
-        return delta_logits.to(out_dtype).view_as(grad_logits)
+            grad_w = g_fp32.t().matmul(h_det_fp32)
+            scale = self.sam_rho / grad_w.norm(p=2).clamp_min(1e-12)
+            eps_t = (grad_w * scale).t().contiguous().to(out_dtype)
+        delta_logits = h_post_out.matmul(eps_t)
+
+        return delta_logits.view_as(grad_logits)
 
     def _build_perturbed_logits_zero3_nonadaptive_no_gather(
         self,
